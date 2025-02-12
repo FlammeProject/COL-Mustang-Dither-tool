@@ -1,7 +1,7 @@
 import sys
 import numpy as np
 import cv2
-from PIL import Image, ImageQt
+from PIL import Image, ImageQt, ImageEnhance
 from PyQt6.QtWidgets import QApplication, QLabel, QPushButton, QFileDialog, QVBoxLayout, QHBoxLayout, QSlider, QWidget, QComboBox, QScrollArea
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QPixmap
@@ -35,9 +35,9 @@ class DitherApp(QWidget):
         
         self.slidersLayout = QHBoxLayout()
         
-        self.sliderIntensity = self.createSlider("Intensité")
-        self.sliderThreshold = self.createSlider("Seuil")
-        self.sliderContrast = self.createSlider("Contraste")
+        self.sliderIntensity = self.createSlider("Intensité", 1, 255, 128)
+        self.sliderThreshold = self.createSlider("Seuil", 0, 255, 128)
+        self.sliderContrast = self.createSlider("Contraste", 0, 3, 1, 1)
         
         self.slidersLayout.addWidget(self.sliderIntensity[1])
         self.slidersLayout.addWidget(self.sliderThreshold[1])
@@ -52,14 +52,15 @@ class DitherApp(QWidget):
         self.setLayout(self.layout)
         self.image = None
     
-    def createSlider(self, name):
+    def createSlider(self, name, minVal, maxVal, defaultVal, step=1):
         container = QWidget()
         layout = QVBoxLayout()
         label = QLabel(name)
         slider = QSlider(Qt.Orientation.Horizontal)
-        slider.setMinimum(1)
-        slider.setMaximum(255)
-        slider.setValue(128)
+        slider.setMinimum(minVal)
+        slider.setMaximum(maxVal)
+        slider.setValue(defaultVal)
+        slider.setSingleStep(int(step))
         slider.valueChanged.connect(self.applyDither)
         layout.addWidget(label)
         layout.addWidget(slider)
@@ -77,25 +78,41 @@ class DitherApp(QWidget):
             return
         
         method = self.comboDither.currentText()
-        
         intensity = self.sliderIntensity[0].value()
         threshold = self.sliderThreshold[0].value()
         contrast = self.sliderContrast[0].value()
         
+        self.image = self.image.convert('L')
+        enhancer = ImageEnhance.Contrast(self.image)
+        self.image = enhancer.enhance(contrast).convert('L')
+        image_array = np.array(self.image)
+        
         if method == "Floyd-Steinberg":
             self.image = self.image.convert("1", dither=Image.Dither.FLOYDSTEINBERG)
         elif method == "Bayer 2x2":
-            self.image = Image.fromarray(self.bayerDither(np.array(self.image), 2))
+            self.image = Image.fromarray(self.bayerDither(image_array, 2, threshold))
         elif method == "Bayer 4x4":
-            self.image = Image.fromarray(self.bayerDither(np.array(self.image), 4))
+            self.image = Image.fromarray(self.bayerDither(image_array, 4, threshold))
         elif method == "Aléatoire":
-            image_array = np.array(self.image)
-            dithered = (image_array + np.random.randint(-intensity, intensity, image_array.shape)).clip(0, 255)
+            noise = np.random.randint(-intensity, intensity, image_array.shape)
+            dithered = np.clip(image_array + noise, 0, 255)
             self.image = Image.fromarray(dithered.astype(np.uint8))
         elif method == "Ordered Dithering":
-            self.image = Image.fromarray(self.orderedDither(np.array(self.image)))
+            self.image = Image.fromarray(self.orderedDither(image_array, threshold))
         
         self.displayImage()
+    
+    def bayerDither(self, img, size, threshold):
+        threshold_map = np.array([[0, 2], [3, 1]]) * (255 // 4) if size == 2 else \
+                         np.array([[0,  8,  2, 10],
+                                   [12, 4, 14, 6],
+                                   [3, 11, 1,  9],
+                                   [15, 7, 13, 5]]) * (255 // 16)
+        h, w = img.shape
+        tile_h = (h + size - 1) // size
+        tile_w = (w + size - 1) // size
+        threshold_map = np.tile(threshold_map, (tile_h, tile_w))[:h, :w]
+        return ((img > (threshold_map + threshold)) * 255).astype(np.uint8)
     
     def displayImage(self):
         qtImage = ImageQt.ImageQt(self.image)
