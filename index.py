@@ -19,7 +19,7 @@ class DitherApp(QWidget):
         print("DitherApp initialized.")
     
     def initUI(self):
-        self.setWindowTitle("Dither Editor")
+        self.setWindowTitle("COL Mustang - Dithering")
         self.setGeometry(100, 100, 800, 600)
         
         self.layout = QVBoxLayout()
